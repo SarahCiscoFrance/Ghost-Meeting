@@ -33,7 +33,7 @@ the metrics used are as follows :
     ```sh
     xcommand Macros Macro Accessmode Set Name: <name-of-macro> Internal: True
     ```
-    (replace <name-of-macro> by the name of the macro in the macro-editor)
+    (replace *name-of-macro* by the name of the macro in the macro-editor)
 
 5. That will also remove the macro from the macro-editor, so to avoid that, set this config(it might be that this is not necessary if you use a developer option key instead of remotesupport):
 
