@@ -241,6 +241,10 @@ async function beginDetection() {
                     listenerShouldCheck = false;
                     bookingId = null;
                     meetingId = null;
+                    presence._lastFullTimer = 0;
+                    presence._lastEmptyTimer = 0;
+                    presence._roomIsFull = false;
+                    presence._roomIsEmpty = false;
                     console.log("Booking " + currentBookingId + " ended Stop Checking");
                 }, new Date(booking.Booking.Time.EndTime) - new Date().getTime()); //when the booking end the variable bookingIsActive is set to false
             }).catch((err) => {
