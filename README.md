@@ -11,7 +11,7 @@ The following metrics are used:
 
 **People Count**      -> the number of people counted in the room
 
-**Sound Level**       -> the sound level
+**Sound Level**       -> the sound level in the room
 
 **Presentation Mode** -> the presentation mode (Off / Receiving / Sending)
 
