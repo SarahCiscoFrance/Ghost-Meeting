@@ -35,7 +35,7 @@ The following metrics are used:
     ```
     (replace *name-of-macro* by the name of the macro in the macro-editor)
 
-5. That will also remove the macro from the macro-editor, so to avoid that, set this config(it might be that this is not necessary if you use a developer option key instead of remotesupport):
+5. That will also remove the macro from the macro-editor, so to avoid that, set this config(it might be unnecessary if you use a developer option key instead of remotesupport):
 
     ```sh
     xconfiguration Macros Experimental: True
