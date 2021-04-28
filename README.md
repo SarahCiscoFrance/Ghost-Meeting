@@ -3,7 +3,7 @@
 
 This macro use the data collected by the Cisco Video Conferencing endpoints to determine if the room is really used during a meeting. When a booking start the macro starts to listen to the metrics update events.
 
-the metrics used are as follows : 
+The metrics used are as follows : 
 
 **Active Call**       -> the number of calls in progress
 
