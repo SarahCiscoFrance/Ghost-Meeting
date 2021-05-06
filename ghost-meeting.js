@@ -138,11 +138,11 @@ class PresenceDetector {
 
     _startCountdown() {
         console.log("No presence Detected");
-        displayTextOnScreen("Warning", "The current booking : " + bookingId + "<br> will be deleted in 1 minute");
+        displayTextOnScreen("Warning", "The current meeting <br> will be deleted in 1 minute");
 
         setTimeout(() => {
             xapi.command("UserInterface Message Prompt Display", {
-                Text: "The current booking <br> will be deleted",
+                Text: "The current meeting <br> will be deleted",
                 FeedbackId: 'alert_response',
                 'Option.1': 'DONT DELETE !',
             }).catch((error) => {
