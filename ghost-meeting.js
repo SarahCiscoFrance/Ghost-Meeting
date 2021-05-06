@@ -152,6 +152,7 @@ class PresenceDetector {
                 xapi.Command.UserInterface.Message.Prompt.Clear({
                     FeedbackId: "alert_response"
                 });
+                xapi.Command.UserInterface.Message.Alert.Clear({ });
                 xapi.Command.Bookings.Respond({Type: "Decline", MeetingId: meetingId});
                 bookingId = null;
                 bookingIsActive = false;
@@ -217,7 +218,7 @@ function displayTextOnScreen(title, msg) {
     xapi.command("UserInterface Message Alert Display", {
         Title: title,
         Text: msg,
-        Duration: 3
+        Duration: 0
     });
 }
 
@@ -363,6 +364,7 @@ async function beginDetection() {
                     case '1':
                         //To stop timeout and not delete current booking even if no presence is detected
                         clearTimeout(delete_timeout);
+                        xapi.Command.UserInterface.Message.Alert.Clear({ });
                         listenerShouldCheck = true;
                         presence._data.peoplePresence = true;
                         presence._data.closeProximity = true;
