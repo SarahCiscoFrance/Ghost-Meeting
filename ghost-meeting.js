@@ -46,6 +46,7 @@ const SOUND_LEVEL = 50;
  * *********************************
  */
 
+var end_timeout;
 var delete_timeout;
 var bookingIsActive = false;
 var listenerShouldCheck = true;
