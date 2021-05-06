@@ -250,7 +250,7 @@ async function beginDetection() {
                     console.log("Booking " + currentBookingId + " ended Stop Checking");
                 }, new Date(booking.Booking.Time.EndTime) - new Date().getTime()); //when the booking end the variable bookingIsActive is set to false
             }).catch((err) => {
-                console.log(err);
+                //console.log(err);
                 bookingIsActive = false;
                 listenerShouldCheck = false;
                 bookingId = null;
