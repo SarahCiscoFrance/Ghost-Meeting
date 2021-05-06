@@ -45,7 +45,8 @@ const SOUND_LEVEL = 50;
  * *********************************
  * *********************************
  */
-
+var alertDuration = 60;
+var refreshInterval;
 var end_timeout;
 var delete_timeout;
 var bookingIsActive = false;
@@ -137,30 +138,37 @@ class PresenceDetector {
 
     _startCountdown() {
         console.log("No presence Detected");
-        displayTextOnScreen("Warning", "The current booking : " + bookingId + "<br> will be deleted in 15 secondes");
+        displayTextOnScreen("Warning", "The current booking : " + bookingId + "<br> will be deleted in 1 minute");
 
         setTimeout(() => {
             xapi.command("UserInterface Message Prompt Display", {
-                Text: "Delete the current booking ?",
+                Text: "The current booking <br> will be deleted",
                 FeedbackId: 'alert_response',
                 'Option.1': 'DONT DELETE !',
             }).catch((error) => {
                 console.error(error);
             });
+            xapi.Command.Audio.Volume.Set({
+                Level: 100
+            });
+            refreshInterval = setInterval(updateEverySecond, 1000);
             delete_timeout = setTimeout(() => {
                 console.log("No presence Detected so the booking has been removed from this device");
                 xapi.Command.UserInterface.Message.Prompt.Clear({
                     FeedbackId: "alert_response"
                 });
-                xapi.Command.UserInterface.Message.Alert.Clear({ });
-                xapi.Command.Bookings.Respond({Type: "Decline", MeetingId: meetingId});
+                xapi.Command.UserInterface.Message.TextLine.Clear({});
+                xapi.Command.Bookings.Respond({
+                    Type: "Decline",
+                    MeetingId: meetingId
+                });
                 bookingId = null;
                 bookingIsActive = false;
                 this._lastFullTimer = 0;
                 this._lastEmptyTimer = 0;
                 this._roomIsFull = false;
                 this._roomIsEmpty = false;
-            }, 15000);
+            }, 60000);
         }, 5000);
     }
 
@@ -229,34 +237,34 @@ async function beginDetection() {
     await presence.enableDetector(); // we set the interval to poll Cisco equipment for the // presence information
 
     xapi.Status.Bookings.Current.Id.on(async currentBookingId => { //when meeting start
-            await presence.updatePresence(); // initialize data
-            console.log("Booking " + currentBookingId + " detected");
-            bookingIsActive = true;
-            bookingId = currentBookingId;
-            listenerShouldCheck = true;
-            xapi.Command.Bookings.Get({
-                Id: currentBookingId
-            }).then(booking => {
-                meetingId = booking.Booking.MeetingId;
-                end_timeout = setTimeout(() => {
-                    bookingIsActive = false;
-                    listenerShouldCheck = false;
-                    bookingId = null;
-                    meetingId = null;
-                    presence._lastFullTimer = 0;
-                    presence._lastEmptyTimer = 0;
-                    presence._roomIsFull = false;
-                    presence._roomIsEmpty = false;
-                    console.log("Booking " + currentBookingId + " ended Stop Checking");
-                }, new Date(booking.Booking.Time.EndTime) - new Date().getTime()); //when the booking end the variable bookingIsActive is set to false
-            }).catch((err) => {
-                //console.log(err);
+        await presence.updatePresence(); // initialize data
+        console.log("Booking " + currentBookingId + " detected");
+        bookingIsActive = true;
+        bookingId = currentBookingId;
+        listenerShouldCheck = true;
+        xapi.Command.Bookings.Get({
+            Id: currentBookingId
+        }).then(booking => {
+            meetingId = booking.Booking.MeetingId;
+            end_timeout = setTimeout(() => {
                 bookingIsActive = false;
                 listenerShouldCheck = false;
                 bookingId = null;
+                meetingId = null;
+                presence._lastFullTimer = 0;
+                presence._lastEmptyTimer = 0;
                 presence._roomIsFull = false;
                 presence._roomIsEmpty = false;
-              });
+                console.log("Booking " + currentBookingId + " ended Stop Checking");
+            }, new Date(booking.Booking.Time.EndTime) - new Date().getTime()); //when the booking end the variable bookingIsActive is set to false
+        }).catch((err) => {
+            //console.log(err);
+            bookingIsActive = false;
+            listenerShouldCheck = false;
+            bookingId = null;
+            presence._roomIsFull = false;
+            presence._roomIsEmpty = false;
+        });
     });
 
 
@@ -364,7 +372,8 @@ async function beginDetection() {
                     case '1':
                         //To stop timeout and not delete current booking even if no presence is detected
                         clearTimeout(delete_timeout);
-                        xapi.Command.UserInterface.Message.Alert.Clear({ });
+                        clearInterval(refreshInterval);
+                        xapi.Command.UserInterface.Message.TextLine.Clear({});
                         listenerShouldCheck = true;
                         presence._data.peoplePresence = true;
                         presence._data.closeProximity = true;
@@ -380,6 +389,22 @@ async function beginDetection() {
         }
     });
 
+}
+
+function updateEverySecond() {
+    alertDuration = alertDuration - 1;
+    if (alertDuration <= 0) {
+        clearInterval(refreshInterval);
+        xapi.Command.UserInterface.Message.TextLine.Clear({});
+    } else {
+        xapi.command('UserInterface Message TextLine Display', {
+            text: '<br>Meeting will be deleted in: ' + alertDuration + ' seconds<br>',
+            duration: 0
+        });
+        xapi.Command.Audio.Sound.Play({
+            Sound: "KeyTone"
+        })
+    }
 }
 
 
