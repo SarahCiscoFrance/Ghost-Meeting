@@ -45,7 +45,7 @@ const SOUND_LEVEL = 50;
  * *********************************
  * *********************************
  */
-var alertDuration = 60;
+var alertDuration;
 var refreshInterval;
 var end_timeout;
 var delete_timeout;
@@ -151,6 +151,7 @@ class PresenceDetector {
             xapi.Command.Audio.Volume.Set({
                 Level: 100
             });
+            alertDuration = 60;
             refreshInterval = setInterval(updateEverySecond, 1000);
             delete_timeout = setTimeout(() => {
                 console.log("No presence Detected so the booking has been removed from this device");
