@@ -3,7 +3,7 @@
  * Author: rudferna@cisco.com
  * Team: collaboration FRANCE
  * Version: 1.2
- * Date: 28/04/2021
+ * Date: 10/05/2021
  */
 
 
@@ -19,20 +19,15 @@ const xapi = require('xapi');
 /* 1. Set the thresholds. They define how much time it needs to pass before a room is booked or released
  * Tip: For huddle spaces those numbers are usually smaller, while for bigger boardrooms we recommend larger thresholds
  */
-const MIN_BEFORE_BOOK = 1; // in minutes 
-const MIN_BEFORE_RELEASE = 1; // in minutes 
+const MIN_BEFORE_BOOK = 5; // in minutes 
+const MIN_BEFORE_RELEASE = 5; // in minutes 
 
 
-/* 2. You can enable presence detection that is based from ultrasound sensor on the Cisco device. 
- * Tip: Detection via ultrasound can be useful when lighting conditions are not perfect for
- * image recognition. Downside is that it can be quite sensitive and can cause false positive
- * detections. It's best to test it and see if it works for your office environment
+
+/* 2. At what level is the human voice audible
+ * Below you can set this level and enable sound detection
  */
-const USE_ULTRASOUND = false;
-
-/* 3. At what level is the human voice audible
- * Below you can set this level
- */
+const USE_SOUND = false;
 const SOUND_LEVEL = 50;
 
 
@@ -45,6 +40,7 @@ const SOUND_LEVEL = 50;
  * *********************************
  * *********************************
  */
+const USE_ULTRASOUND = true;
 var alertDuration;
 var refreshInterval;
 var end_timeout;
@@ -79,6 +75,12 @@ class PresenceDetector {
         if (!USE_ULTRASOUND) {
             console.log("Ultrasound detection disabled!");
         }
+        if (!USE_SOUND) {
+            console.log("Sound detection disabled!");
+        }
+        else{
+            console.log("Sound detection enabled!");
+        }
         xapi.config.set('HttpClient Mode', 'On');
         xapi.config.set('RoomAnalytics PeopleCountOutOfCall', 'On');
         xapi.config.set('RoomAnalytics PeoplePresenceDetector', 'On');
@@ -96,8 +98,8 @@ class PresenceDetector {
          * Logic that returns a boolean if room is occupied combining all types of enabled presence detection
          */
         console.log("# of people:" + this._data.peopleCount + "| Ultrasound presence detected: " + this._data.peoplePresence + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
-        console.log("IS OCCUPIED: " + (this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || this._data.inCall || this._data.presenceSound || this._data.sharing))
-        return this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || this._data.inCall || this._data.presenceSound || this._data.sharing;
+        console.log("IS OCCUPIED: " + (this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || this._data.inCall || (USE_SOUND && this._data.presenceSound) || this._data.sharing))
+        return this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || this._data.inCall || (USE_SOUND && this._data.presenceSound) || this._data.sharing;
     }
     _processPresence() {
         /* 
@@ -138,39 +140,33 @@ class PresenceDetector {
 
     _startCountdown() {
         console.log("No presence Detected");
-        displayTextOnScreen("Warning", "The current meeting <br> will be deleted in 1 minute");
+        xapi.command("UserInterface Message Prompt Display", {
+            Text: "This room seems unused. It will be self-released.<br>Press check-in if you have booked this room",
+            FeedbackId: 'alert_response',
+            'Option.1': 'CHECK IN',
+        }).catch((error) => {
+            console.error(error);
+        });
+        alertDuration = 60;
+        refreshInterval = setInterval(updateEverySecond, 1000);
+        delete_timeout = setTimeout(() => {
+            console.log("No presence Detected so the booking has been removed from this device");
+            xapi.Command.UserInterface.Message.Prompt.Clear({
+                FeedbackId: "alert_response"
+            });
+            xapi.Command.UserInterface.Message.TextLine.Clear({});
+            xapi.Command.Bookings.Respond({
+                Type: "Decline",
+                MeetingId: meetingId
+            });
+            bookingId = null;
+            bookingIsActive = false;
+            this._lastFullTimer = 0;
+            this._lastEmptyTimer = 0;
+            this._roomIsFull = false;
+            this._roomIsEmpty = false;
+        }, 60000);
 
-        setTimeout(() => {
-            xapi.command("UserInterface Message Prompt Display", {
-                Text: "The current meeting <br> will be deleted",
-                FeedbackId: 'alert_response',
-                'Option.1': 'DONT DELETE !',
-            }).catch((error) => {
-                console.error(error);
-            });
-            xapi.Command.Audio.Volume.Set({
-                Level: 100
-            });
-            alertDuration = 60;
-            refreshInterval = setInterval(updateEverySecond, 1000);
-            delete_timeout = setTimeout(() => {
-                console.log("No presence Detected so the booking has been removed from this device");
-                xapi.Command.UserInterface.Message.Prompt.Clear({
-                    FeedbackId: "alert_response"
-                });
-                xapi.Command.UserInterface.Message.TextLine.Clear({});
-                xapi.Command.Bookings.Respond({
-                    Type: "Decline",
-                    MeetingId: meetingId
-                });
-                bookingId = null;
-                bookingIsActive = false;
-                this._lastFullTimer = 0;
-                this._lastEmptyTimer = 0;
-                this._roomIsFull = false;
-                this._roomIsEmpty = false;
-            }, 60000);
-        }, 5000);
     }
 
     _checkPresenceAndProcess() {
@@ -212,7 +208,7 @@ class PresenceDetector {
             }
 
             //process sound level
-            if (soundLevel > SOUND_LEVEL) {
+            if ((soundLevel > SOUND_LEVEL) && USE_SOUND) {
                 this._data.presenceSound = true;
             } else {
                 this._data.presenceSound = false;
@@ -330,7 +326,7 @@ async function beginDetection() {
         if (bookingIsActive) {
             console.log("Sound level: " + level);
             level = parseInt(level);
-            if (level > SOUND_LEVEL) {
+            if ((level > SOUND_LEVEL) && USE_SOUND) {
                 presence._data.presenceSound = true;
             } else {
                 presence._data.presenceSound = false;
@@ -399,12 +395,9 @@ function updateEverySecond() {
         xapi.Command.UserInterface.Message.TextLine.Clear({});
     } else {
         xapi.command('UserInterface Message TextLine Display', {
-            text: '<br>Meeting will be deleted in: ' + alertDuration + ' seconds<br>',
+            text: '<br>This room seems unused. It will be released in ' + alertDuration + ' seconds.<br>Use the check-in button on the touch panel if you have booked this room.<br>',
             duration: 0
         });
-        xapi.Command.Audio.Sound.Play({
-            Sound: "KeyTone"
-        })
     }
 }
 
