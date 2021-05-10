@@ -234,180 +234,177 @@ class PresenceDetector {
 
 
 async function beginDetection() {
-    /* * Entry point for the macro */
+        /* * Entry point for the macro */
 
-    const presence = new PresenceDetector();
-    await presence.enableDetector(); // we set the interval to poll Cisco equipment for the // presence information
+        const presence = new PresenceDetector();
+        await presence.enableDetector(); // we set the interval to poll Cisco equipment for the // presence information
 
-    xapi.Status.Bookings.Current.Id.on(async currentBookingId => { //when meeting start
-        await presence.updatePresence(); // initialize data
-        console.log("Booking " + currentBookingId + " detected");
-        bookingIsActive = true;
-        bookingId = currentBookingId;
-        listenerShouldCheck = true;
-        xapi.Command.Bookings.Get({
-            Id: currentBookingId
-        }).then(booking => {
-            meetingId = booking.Booking.MeetingId;
-            end_timeout = setTimeout(() => {
+        xapi.Status.Bookings.Current.Id.on(async currentBookingId => { //when meeting start
+            await presence.updatePresence(); // initialize data
+            console.log("Booking " + currentBookingId + " detected");
+            bookingIsActive = true;
+            bookingId = currentBookingId;
+            listenerShouldCheck = true;
+            xapi.Command.Bookings.Get({
+                Id: currentBookingId
+            }).then(booking => {
+                meetingId = booking.Booking.MeetingId;
+                end_timeout = setTimeout(() => {
+                    bookingIsActive = false;
+                    listenerShouldCheck = false;
+                    bookingId = null;
+                    meetingId = null;
+                    presence._lastFullTimer = 0;
+                    presence._lastEmptyTimer = 0;
+                    presence._roomIsFull = false;
+                    presence._roomIsEmpty = false;
+                    console.log("Booking " + currentBookingId + " ended Stop Checking");
+                }, new Date(booking.Booking.Time.EndTime) - new Date().getTime()); //when the booking end the variable bookingIsActive is set to false
+            }).catch((err) => {
                 bookingIsActive = false;
                 listenerShouldCheck = false;
                 bookingId = null;
-                meetingId = null;
-                presence._lastFullTimer = 0;
-                presence._lastEmptyTimer = 0;
                 presence._roomIsFull = false;
                 presence._roomIsEmpty = false;
-                console.log("Booking " + currentBookingId + " ended Stop Checking");
-            }, new Date(booking.Booking.Time.EndTime) - new Date().getTime()); //when the booking end the variable bookingIsActive is set to false
-        }).catch((err) => {
-            bookingIsActive = false;
-            listenerShouldCheck = false;
-            bookingId = null;
-            presence._roomIsFull = false;
-            presence._roomIsEmpty = false;
+            });
         });
-    });
 
 
-    //Active Call
-    if (USE_ACTIVE_CALLS) {
-        xapi.Status.SystemUnit.State.NumberOfActiveCalls.on(numberOfcall => {
-            if (bookingIsActive) {
-                console.log("Number of active call: " + numberOfcall);
-                if (parseInt(numberOfcall) > 0) {
-                    presence._data.inCall = true;
-                    presence._data.peoplePresence = true;
-                    // if in call we set that people are present
-                } else {
-                    presence._data.inCall = false;
-                }
-                if (listenerShouldCheck) {
-                    presence._checkPresenceAndProcess();
-                }
-            }
-        });
-    }
-
-    //Presence
-    xapi.Status.RoomAnalytics.PeoplePresence.on(presenceValue => {
-        if (bookingIsActive) {
-            console.log("Presence: " + presenceValue);
-            presenceValue = presenceValue === 'Yes' ? true : false;
-            if (!USE_ULTRASOUND) {
-                // if ultrasound is disabled we set people presence 
-                // based only of image reconigition 
-                presenceValue = presence._data.peopleCount ? true : false;
-            }
-            presence._data.peoplePresence = presenceValue;
-            if (listenerShouldCheck) {
-                presence._checkPresenceAndProcess();
-            }
-        }
-    });
-
-
-    //People Count
-    xapi.Status.RoomAnalytics.PeopleCount.Current.on(nb_people => {
-        if (bookingIsActive) {
-            console.log("Poeple count: " + nb_people);
-            nb_people = parseInt(nb_people);
-            presence._data.peopleCount = nb_people === -1 ? 0 : nb_people;
-
-            if (!USE_ULTRASOUND) {
-                // if ultrasound is disabled we set people presence 
-                // based only of image reconigition 
-                if (nb_people > 0) {
-                    presence._data.peoplePresence = true;
-                } else {
-                    presence._data.peoplePresence = false;
-                }
-            } else if (presence._data.peoplePresence === true && presence._data.peopleCount === 0) {
-                presence._data.peopleCount = 1;
-            }
-
-            if (listenerShouldCheck) {
-                presence._checkPresenceAndProcess();
-            }
-        }
-    });
-
-
-    //Sound Level
-    if (USE_SOUND) {
-        xapi.Status.RoomAnalytics.Sound.Level.A.on(level => {
-            if (bookingIsActive) {
-                console.log("Sound level: " + level);
-                level = parseInt(level);
-                if ((level > SOUND_LEVEL) && USE_SOUND) {
-                    presence._data.presenceSound = true;
-                } else {
-                    presence._data.presenceSound = false;
-                }
-                if (listenerShouldCheck) {
-                    presence._checkPresenceAndProcess();
-                }
-            }
-        });
-    }
-
-
-    //Presentation Mode (Off/Receiving/Sending)
-    if (USE_PRESENTATION_MODE) {
-        xapi.Status.Conference.Presentation.Mode.on(mode => {
-            if (bookingIsActive) {
-                console.log("Presentation Mode: " + mode);
-                mode = mode === 'Off' ? false : true;
-                presence._data.sharing = mode;
-                if (listenerShouldCheck) {
-                    presence._checkPresenceAndProcess();
-                }
-            }
-        });
-    }
-
-
-    xapi.event.on('UserInterface Message Prompt Response', (event) => {
-        switch (event.FeedbackId) {
-            case 'alert_response':
-                switch (event.OptionId) {
-                    case '1':
-                        //To stop timeout and not delete current booking even if no presence is detected
-                        clearTimeout(delete_timeout);
-                        clearInterval(refreshInterval);
-                        xapi.Command.UserInterface.Message.TextLine.Clear({});
-                        listenerShouldCheck = true;
+        //Active Call
+        if (USE_ACTIVE_CALLS) {
+            xapi.Status.SystemUnit.State.NumberOfActiveCalls.on(numberOfcall => {
+                if (bookingIsActive) {
+                    console.log("Number of active call: " + numberOfcall);
+                    if (parseInt(numberOfcall) > 0) {
+                        presence._data.inCall = true;
                         presence._data.peoplePresence = true;
-                        presence._roomIsEmpty = false;
-                        presence._roomIsFull = true;
+                        // if in call we set that people are present
+                    } else {
+                        presence._data.inCall = false;
+                    }
+                    if (listenerShouldCheck) {
+                        presence._checkPresenceAndProcess();
+                    }
+                }
+            });
+        }
+
+        //Presence
+        xapi.Status.RoomAnalytics.PeoplePresence.on(presenceValue => {
+            if (bookingIsActive) {
+                console.log("Presence: " + presenceValue);
+                presenceValue = presenceValue === 'Yes' ? true : false;
+                if (!USE_ULTRASOUND) {
+                    // if ultrasound is disabled we set people presence 
+                    // based only of image reconigition 
+                    presenceValue = presence._data.peopleCount ? true : false;
+                }
+                presence._data.peoplePresence = presenceValue;
+                if (listenerShouldCheck) {
+                    presence._checkPresenceAndProcess();
+                }
+            }
+        });
+
+
+        //People Count
+        xapi.Status.RoomAnalytics.PeopleCount.Current.on(nb_people => {
+                if (bookingIsActive) {
+                    console.log("Poeple count: " + nb_people);
+                    nb_people = parseInt(nb_people);
+                    presence._data.peopleCount = nb_people === -1 ? 0 : nb_people;
+
+                    if (!USE_ULTRASOUND) {
+                        // if ultrasound is disabled we set people presence 
+                        // based only of image reconigition 
+                        if (nb_people > 0) {
+                            presence._data.peoplePresence = true;
+                        } else {
+                            presence._data.peoplePresence = false;
+                        }
+
+                        if (listenerShouldCheck) {
+                            presence._checkPresenceAndProcess();
+                        }
+                    }
+                });
+
+
+            //Sound Level
+            if (USE_SOUND) {
+                xapi.Status.RoomAnalytics.Sound.Level.A.on(level => {
+                    if (bookingIsActive) {
+                        console.log("Sound level: " + level);
+                        level = parseInt(level);
+                        if ((level > SOUND_LEVEL) && USE_SOUND) {
+                            presence._data.presenceSound = true;
+                        } else {
+                            presence._data.presenceSound = false;
+                        }
+                        if (listenerShouldCheck) {
+                            presence._checkPresenceAndProcess();
+                        }
+                    }
+                });
+            }
+
+
+            //Presentation Mode (Off/Receiving/Sending)
+            if (USE_PRESENTATION_MODE) {
+                xapi.Status.Conference.Presentation.Mode.on(mode => {
+                    if (bookingIsActive) {
+                        console.log("Presentation Mode: " + mode);
+                        mode = mode === 'Off' ? false : true;
+                        presence._data.sharing = mode;
+                        if (listenerShouldCheck) {
+                            presence._checkPresenceAndProcess();
+                        }
+                    }
+                });
+            }
+
+
+            xapi.event.on('UserInterface Message Prompt Response', (event) => {
+                switch (event.FeedbackId) {
+                    case 'alert_response':
+                        switch (event.OptionId) {
+                            case '1':
+                                //To stop timeout and not delete current booking even if no presence is detected
+                                clearTimeout(delete_timeout);
+                                clearInterval(refreshInterval);
+                                xapi.Command.UserInterface.Message.TextLine.Clear({});
+                                listenerShouldCheck = true;
+                                presence._data.peoplePresence = true;
+                                presence._roomIsEmpty = false;
+                                presence._roomIsFull = true;
+                                break;
+                            default:
+                                break;
+                        }
                         break;
                     default:
                         break;
                 }
-                break;
-            default:
-                break;
+            });
+
         }
-    });
-
-}
 
 
-function updateEverySecond() {
-    alertDuration = alertDuration - 1;
-    if (alertDuration <= 0) {
-        clearInterval(refreshInterval);
-        xapi.Command.UserInterface.Message.TextLine.Clear({});
-    } else {
-        xapi.command('UserInterface Message TextLine Display', {
-            text: '<br>This room seems unused. It will be released in ' + alertDuration + ' seconds.<br>Use the check-in button on the touch panel if you have booked this room.<br>',
-            duration: 0
-        });
-    }
-}
+        function updateEverySecond() {
+            alertDuration = alertDuration - 1;
+            if (alertDuration <= 0) {
+                clearInterval(refreshInterval);
+                xapi.Command.UserInterface.Message.TextLine.Clear({});
+            } else {
+                xapi.command('UserInterface Message TextLine Display', {
+                    text: '<br>This room seems unused. It will be released in ' + alertDuration + ' seconds.<br>Use the check-in button on the touch panel if you have booked this room.<br>',
+                    duration: 0
+                });
+            }
+        }
 
 
-/**
- * START Detection
- */
-beginDetection();
+        /**
+         * START Detection
+         */
+        beginDetection();
