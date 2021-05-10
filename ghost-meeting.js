@@ -395,7 +395,7 @@ function updateEverySecond() {
         xapi.Command.UserInterface.Message.TextLine.Clear({});
     } else {
         xapi.command('UserInterface Message TextLine Display', {
-            text: '<br>This room seems unused. It will be released in ' + alertDuration + ' seconds.<br>Use the check-in button on the touch panel if you have booked this room.<br>',
+            text: 'This room seems unused. It will be released in ' + alertDuration + ' seconds.<br>Use the check-in button on the touch panel if you have booked this room.',
             duration: 0
         });
     }
