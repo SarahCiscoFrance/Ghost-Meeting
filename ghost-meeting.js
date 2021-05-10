@@ -15,16 +15,7 @@ const xapi = require('xapi');
  * ********************************
  */
 
-
-/* 1. Set the thresholds. They define how much time it needs to pass before a room is booked or released
- * Tip: For huddle spaces those numbers are usually smaller, while for bigger boardrooms we recommend larger thresholds
- */
-const MIN_BEFORE_BOOK = 5; // in minutes 
-const MIN_BEFORE_RELEASE = 5; // in minutes 
-
-
-
-/* 2. At what level is the human voice audible
+/* At what level is the human voice audible
  * Below you can set this level and enable sound detection
  */
 const USE_SOUND = false;
@@ -40,6 +31,14 @@ const SOUND_LEVEL = 50;
  * *********************************
  * *********************************
  */
+
+
+ /* Set the thresholds. They define how much time it needs to pass before a room is booked or released
+ * Tip: For huddle spaces those numbers are usually smaller, while for bigger boardrooms we recommend larger thresholds
+ */
+const MIN_BEFORE_BOOK = 5; // in minutes 
+const MIN_BEFORE_RELEASE = 5; // in minutes 
+
 const USE_ULTRASOUND = true;
 var alertDuration;
 var refreshInterval;
