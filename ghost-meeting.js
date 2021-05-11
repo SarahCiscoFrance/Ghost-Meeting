@@ -2,8 +2,8 @@
  * Topic: Releasing the room when no one is attending
  * Author: rudferna@cisco.com
  * Team: collaboration FRANCE
- * Version: 1.2
- * Date: 10/05/2021
+ * Version: 1.3
+ * Date: 11/05/2021
  */
 
 
@@ -33,6 +33,17 @@ const USE_ACTIVE_CALLS = true;
  */
 const USE_PRESENTATION_MODE = true;
 
+/* 4. This const is to be set to true when ultrasound cannot be trusted (e.g. open meeting spaces)
+ */
+const USE_PEOPLE_COUNT_ONLY = false
+
+
+/* 5. When USE_PRESENCE_AND_COUNT is set to true, ultrasound presence or people counting will both be required to detect presence
+* If it is set to false, it will require either or.
+* We recommend setting this value to true when people outside of the room can be detected by the camera (e.g. glass walls)
+*/
+const USE_PRESENCE_AND_COUNT=false
+
 
 /* 
  * *********************************
@@ -51,7 +62,7 @@ const USE_PRESENTATION_MODE = true;
 const MIN_BEFORE_BOOK = 5; // in minutes 
 const MIN_BEFORE_RELEASE = 5; // in minutes 
 
-const USE_ULTRASOUND = true;
+const USE_ULTRASOUND = !USE_PEOPLE_COUNT_ONLY ? true : false;
 var alertDuration;
 var refreshInterval;
 var end_timeout;
@@ -107,9 +118,17 @@ class PresenceDetector {
         /*
          * Logic that returns a boolean if room is occupied combining all types of enabled presence detection
          */
-        console.log("# of people:" + this._data.peopleCount + "| Ultrasound presence detected: " + this._data.peoplePresence + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
-        console.log("IS OCCUPIED: " + (this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing)));
-        return this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing);
+        if(!USE_PRESENCE_AND_COUNT){
+            console.log("# of people:" + this._data.peopleCount + "| Ultrasound presence detected: " + this._data.peoplePresence + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
+            console.log("IS OCCUPIED: " + (this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing)));
+            return this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing);
+        }
+        else{
+            //if USE_PRESENCE_AND_COUNT is true
+            console.log("Presence and face detected: " + (this._data.peoplePresence && this._data.peopleCount) + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
+            console.log("IS OCCUPIED: " + (this._data.peopleCount && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing));
+            return (this._data.peopleCount && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing);
+        }
     }
     _processPresence() {
         /* 
@@ -210,7 +229,7 @@ class PresenceDetector {
             if (!USE_ULTRASOUND) {
                 // if ultrasound is disabled we set people presence 
                 // based only of image reconigition 
-                this._data.peoplePresence = this._data.peopleCount ? true : false;
+                this._data.peoplePresence = this._data.peopleCount > 0 ? true : false;
             }
             // process conference calls 
             if (numCalls > 0 && USE_ACTIVE_CALLS) {
@@ -237,11 +256,11 @@ async function beginDetection() {
     /* * Entry point for the macro */
 
     const presence = new PresenceDetector();
-    await presence.enableDetector(); // we set the interval to poll Cisco equipment for the // presence information
+    await presence.enableDetector(); // to configure Cisco equipment for the presence information
 
     xapi.Status.Bookings.Current.Id.on(async currentBookingId => { //when meeting start
-        await presence.updatePresence(); // initialize data
         console.log("Booking " + currentBookingId + " detected");
+        await presence.updatePresence(); // initialize data
         bookingIsActive = true;
         bookingId = currentBookingId;
         listenerShouldCheck = true;
@@ -266,6 +285,8 @@ async function beginDetection() {
             bookingId = null;
             presence._roomIsFull = false;
             presence._roomIsEmpty = false;
+            presence._lastFullTimer = 0;
+            presence._lastEmptyTimer = 0;
         });
     });
 
@@ -298,6 +319,17 @@ async function beginDetection() {
                 presenceValue = presence._data.peopleCount ? true : false;
             }
             presence._data.peoplePresence = presenceValue;
+
+            if (presenceValue) {
+                xapi.Command.UserInterface.Message.Prompt.Clear({
+                    FeedbackId: "alert_response"
+                });
+                xapi.Command.UserInterface.Message.TextLine.Clear({});
+                clearTimeout(delete_timeout);
+                clearInterval(refreshInterval);
+                listenerShouldCheck = true;
+            }
+
             if (listenerShouldCheck) {
                 presence._checkPresenceAndProcess();
             }
@@ -320,6 +352,16 @@ async function beginDetection() {
                 } else {
                     presence._data.peoplePresence = false;
                 }
+            }
+
+            if (nb_people > 0) {
+                xapi.Command.UserInterface.Message.Prompt.Clear({
+                    FeedbackId: "alert_response"
+                });
+                xapi.Command.UserInterface.Message.TextLine.Clear({});
+                clearTimeout(delete_timeout);
+                clearInterval(refreshInterval);
+                listenerShouldCheck = true;
             }
             if (listenerShouldCheck) {
                 presence._checkPresenceAndProcess();
