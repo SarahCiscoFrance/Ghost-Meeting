@@ -2,8 +2,8 @@
  * Topic: Releasing the room when no one is attending
  * Author: rudferna@cisco.com
  * Team: collaboration FRANCE
- * Version: 1.3
- * Date: 11/05/2021
+ * Version: 1.4
+ * Date: 12/05/2021
  */
 
 
@@ -35,15 +35,20 @@ const USE_PRESENTATION_MODE = true;
 
 /* 4. This const is to be set to true when ultrasound cannot be trusted (e.g. open meeting spaces)
  */
-const USE_PEOPLE_COUNT_ONLY = false
+const USE_PEOPLE_COUNT_ONLY = false;
 
 
 /* 5. When USE_PRESENCE_AND_COUNT is set to true, ultrasound presence or people counting will both be required to detect presence
-* If it is set to false, it will require either or.
-* We recommend setting this value to true when people outside of the room can be detected by the camera (e.g. glass walls)
-*/
-const USE_PRESENCE_AND_COUNT=false
+ * If it is set to false, it will require either or.
+ * We recommend setting this value to true when people outside of the room can be detected by the camera (e.g. glass walls)
+ */
+const USE_PRESENCE_AND_COUNT = false;
 
+
+/* 6. When USE_GUI_INTERACTION is set to true, the click/interaction with userinterface extensions (panel, button, slider, toogle etc) is used to detect presence.
+ * If it is set to false, it's not used.
+ */
+const USE_GUI_INTERACTION = true;
 
 /* 
  * *********************************
@@ -63,12 +68,12 @@ const MIN_BEFORE_BOOK = 5; // in minutes
 const MIN_BEFORE_RELEASE = 5; // in minutes 
 
 const USE_ULTRASOUND = !USE_PEOPLE_COUNT_ONLY ? true : false;
-var alertDuration;
-var refreshInterval;
-var end_timeout;
-var delete_timeout;
-var bookingIsActive = false;
-var listenerShouldCheck = true;
+let alertDuration;
+let refreshInterval;
+let delete_timeout;
+var forcedUpdate;
+let bookingIsActive = false;
+let listenerShouldCheck = true;
 let bookingId;
 let meetingId;
 
@@ -118,12 +123,11 @@ class PresenceDetector {
         /*
          * Logic that returns a boolean if room is occupied combining all types of enabled presence detection
          */
-        if(!USE_PRESENCE_AND_COUNT){
+        if (!USE_PRESENCE_AND_COUNT) {
             console.log("# of people:" + this._data.peopleCount + "| Ultrasound presence detected: " + this._data.peoplePresence + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
             console.log("IS OCCUPIED: " + (this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing)));
             return this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing);
-        }
-        else{
+        } else {
             //if USE_PRESENCE_AND_COUNT is true
             console.log("Presence and face detected: " + (this._data.peoplePresence && this._data.peopleCount) + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
             console.log("IS OCCUPIED: " + (this._data.peopleCount && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing));
@@ -184,6 +188,7 @@ class PresenceDetector {
                 FeedbackId: "alert_response"
             });
             xapi.Command.UserInterface.Message.TextLine.Clear({});
+            clearInterval(forcedUpdate);
             xapi.Command.Bookings.Respond({
                 Type: "Decline",
                 MeetingId: meetingId
@@ -256,38 +261,73 @@ async function beginDetection() {
     /* * Entry point for the macro */
 
     const presence = new PresenceDetector();
-    await presence.enableDetector(); // to configure Cisco equipment for the presence information
+    await presence.enableDetector(); // to configure Cisco equipment to detect presence informations
 
-    xapi.Status.Bookings.Current.Id.on(async currentBookingId => { //when meeting start
-        console.log("Booking " + currentBookingId + " detected");
+    //when meeting starts
+    xapi.Event.Bookings.Start.on(async booking_info => {
+        console.log("Booking " + booking_info.Id + " detected");
         await presence.updatePresence(); // initialize data
-        bookingIsActive = true;
-        bookingId = currentBookingId;
-        listenerShouldCheck = true;
-        xapi.Command.Bookings.Get({
-            Id: currentBookingId
-        }).then(booking => {
-            meetingId = booking.Booking.MeetingId;
-            end_timeout = setTimeout(() => {
-                bookingIsActive = false;
-                listenerShouldCheck = false;
+        bookingId = booking_info.Id;
+        xapi.Status.Bookings.Availability.Status.get().then(availability => {
+            if (availability === 'BookedUntil') {
+                xapi.Command.Bookings.Get({
+                    Id: booking_info.Id
+                }).then(booking => {
+                    meetingId = booking.Booking.MeetingId;
+                    bookingIsActive = true;
+                    listenerShouldCheck = true;
+
+                    //each minutes it check if _checkPresenceAndProcess should be called (in order to declare a room empty or full).
+                    //This is done because the update depends on listeners and if no events are detected the method will never be called
+                    forcedUpdate = setInterval(() => {
+
+                        if (presence._isRoomOccupied()) {
+                            if ((presence._lastFullTimer != 0)) {
+                                if (Date.now() > (presence._lastFullTimer + MIN_BEFORE_BOOK * 60000)) {
+                                    console.log("It's been a while since nothing happen... Forced update");
+                                    presence._checkPresenceAndProcess();
+                                }
+                            }
+                        } else {
+                            if (presence._lastEmptyTimer != 0) {
+                                if (Date.now() > (presence._lastEmptyTimer + MIN_BEFORE_RELEASE * 60000) && !presence._roomIsEmpty) {
+                                    console.log("It's been a while since nothing happen... Forced update");
+                                    presence._checkPresenceAndProcess();
+                                }
+                            }
+                        }
+
+                    }, (MIN_BEFORE_BOOK * 60000)+1000);
+                });
+            } else {
                 bookingId = null;
                 meetingId = null;
                 presence._lastFullTimer = 0;
                 presence._lastEmptyTimer = 0;
                 presence._roomIsFull = false;
                 presence._roomIsEmpty = false;
-                console.log("Booking " + currentBookingId + " ended Stop Checking");
-            }, new Date(booking.Booking.Time.EndTime) - new Date().getTime()); //when the booking end the variable bookingIsActive is set to false
-        }).catch((err) => {
-            bookingIsActive = false;
-            listenerShouldCheck = false;
-            bookingId = null;
-            presence._roomIsFull = false;
-            presence._roomIsEmpty = false;
-            presence._lastFullTimer = 0;
-            presence._lastEmptyTimer = 0;
+                console.log("Booking was detected but shouldn't have been");
+            }
         });
+    });
+
+    //when meeting ends
+    xapi.Event.Bookings.End.on(booking_info => {
+        xapi.Command.UserInterface.Message.Prompt.Clear({
+            FeedbackId: "alert_response"
+        });
+        xapi.Command.UserInterface.Message.TextLine.Clear({});
+        clearInterval(forcedUpdate);
+        clearTimeout(delete_timeout);
+        bookingIsActive = false;
+        listenerShouldCheck = false;
+        bookingId = null;
+        meetingId = null;
+        presence._lastFullTimer = 0;
+        presence._lastEmptyTimer = 0;
+        presence._roomIsFull = false;
+        presence._roomIsEmpty = false;
+        console.log("Booking " + booking_info.Id + " ended Stop Checking");
     });
 
 
@@ -397,6 +437,19 @@ async function beginDetection() {
             } else {
                 presence._data.sharing = mode;
             }
+            if (listenerShouldCheck) {
+                presence._checkPresenceAndProcess();
+            }
+        }
+    });
+
+    //GUI Interaction
+    xapi.Event.UserInterface.Extensions.on(event => {
+        if (bookingIsActive && USE_GUI_INTERACTION) {
+            console.log("Touch Panel interaction detected");
+            listenerShouldCheck = true;
+            //we consider that there is at least one person
+            presence._data.peopleCount = 1;
             if (listenerShouldCheck) {
                 presence._checkPresenceAndProcess();
             }
