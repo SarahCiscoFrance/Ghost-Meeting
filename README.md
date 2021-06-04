@@ -31,19 +31,9 @@ The following metrics are used:
     xconfiguration RoomScheduler Allowroomresponse: True
     ```
 
-**The steps 4, 5 and 6 are temporary, indeed at some point extra access will not be required to use the macro.**
+**Note**
 
-4. Get extra access : You need extra access (developer option key or remotesupport user)
+The xAPI to Decline a meeting in this Macro is currently a Public-Preview API. Until it is made Public you will need to obtain a Developer Option Key for your device to have access to the API.
 
-5. Then you need to elevate the access of the specific macro:
+This will only be needed while the API is in Public-Preview.
 
-    ```sh
-    xcommand Macros Macro Accessmode Set Name: <name-of-macro> Internal: True
-    ```
-    (replace *name-of-macro* by the name of the macro in the macro-editor)
-
-6. That will also remove the macro from the macro-editor, so to avoid that, set this config (it might be unnecessary if you use a developer option key instead of remotesupport):
-
-    ```sh
-    xconfiguration Macros Experimental: True
-    ```
