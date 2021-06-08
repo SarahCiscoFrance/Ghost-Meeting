@@ -493,6 +493,17 @@ function updateEverySecond() {
             text: 'This room seems unused. It will be released in ' + alertDuration + ' seconds.<br>Use the check-in button on the touch panel if you have booked this room.',
             duration: 0
         });
+
+        //Forced message display every 3 seconds
+        if(alertDuration%3 == 0){
+            xapi.command("UserInterface Message Prompt Display", {
+                Text: "This room seems unused. It will be self-released.<br>Press check-in if you have booked this room",
+                FeedbackId: 'alert_response',
+                'Option.1': 'CHECK IN',
+            }).catch((error) => {
+                console.error(error);
+            });
+          }
     }
 }
 
