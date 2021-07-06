@@ -126,11 +126,13 @@ class PresenceDetector {
         if (!USE_PRESENCE_AND_COUNT) {
             console.log("# of people:" + this._data.peopleCount + "| Ultrasound presence detected: " + this._data.peoplePresence + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
             console.log("IS OCCUPIED: " + (this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing)));
+
             return this._data.peopleCount || (USE_ULTRASOUND && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing);
         } else {
             //if USE_PRESENCE_AND_COUNT is true
             console.log("Presence and face detected: " + (this._data.peoplePresence && this._data.peopleCount) + "| Call in progress: " + this._data.inCall + "| Sound level above " + SOUND_LEVEL + ": " + this._data.presenceSound + "| Sharing (Sending or Receiving): " + this._data.sharing);
             console.log("IS OCCUPIED: " + (this._data.peopleCount && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing));
+
             return (this._data.peopleCount && this._data.peoplePresence) || (USE_ACTIVE_CALLS && this._data.inCall) || (USE_SOUND && this._data.presenceSound) || (USE_PRESENTATION_MODE && this._data.sharing);
         }
     }
@@ -189,10 +191,17 @@ class PresenceDetector {
             });
             xapi.Command.UserInterface.Message.TextLine.Clear({});
             clearInterval(forcedUpdate);
-            xapi.Command.Bookings.Respond({
-                Type: "Decline",
-                MeetingId: meetingId
+
+            //here we get the updeted meetingId to decline the meeting
+            xapi.Command.Bookings.Get({
+                Id: bookingId
+            }).then(book => {
+                xapi.Command.Bookings.Respond({
+                    Type: "Decline",
+                    MeetingId: book.Booking.MeetingId
+                });
             });
+
             bookingId = null;
             bookingIsActive = false;
             this._lastFullTimer = 0;
@@ -297,7 +306,7 @@ async function beginDetection() {
                             }
                         }
 
-                    }, (MIN_BEFORE_BOOK * 60000)+1000);
+                    }, (MIN_BEFORE_BOOK * 60000) + 1000);
                 });
             } else {
                 bookingId = null;
@@ -367,6 +376,8 @@ async function beginDetection() {
                 xapi.Command.UserInterface.Message.TextLine.Clear({});
                 clearTimeout(delete_timeout);
                 clearInterval(refreshInterval);
+                presence._roomIsFull = true;
+                presence._roomIsEmpty = false;
                 listenerShouldCheck = true;
             }
 
@@ -380,7 +391,7 @@ async function beginDetection() {
     //People Count
     xapi.Status.RoomAnalytics.PeopleCount.Current.on(nb_people => {
         if (bookingIsActive) {
-            console.log("Poeple count: " + nb_people);
+            console.log("People count: " + nb_people);
             nb_people = parseInt(nb_people);
             presence._data.peopleCount = nb_people === -1 ? 0 : nb_people;
 
@@ -401,6 +412,8 @@ async function beginDetection() {
                 xapi.Command.UserInterface.Message.TextLine.Clear({});
                 clearTimeout(delete_timeout);
                 clearInterval(refreshInterval);
+                presence._roomIsFull = true;
+                presence._roomIsEmpty = false;
                 listenerShouldCheck = true;
             }
             if (listenerShouldCheck) {
@@ -447,9 +460,18 @@ async function beginDetection() {
     xapi.Event.UserInterface.Extensions.on(event => {
         if (bookingIsActive && USE_GUI_INTERACTION) {
             console.log("Touch Panel interaction detected");
+            xapi.Command.UserInterface.Message.Prompt.Clear({
+                FeedbackId: "alert_response"
+            });
+            xapi.Command.UserInterface.Message.TextLine.Clear({});
+            clearTimeout(delete_timeout);
+            clearInterval(refreshInterval);
+            //we consider that the room is used
+            presence._roomIsFull = true;
+            presence._roomIsEmpty = false;
+            presence._lastFullTimer = Date.now();
+            presence._lastEmptyTimer = 0;
             listenerShouldCheck = true;
-            //we consider that there is at least one person
-            presence._data.peopleCount = 1;
             if (listenerShouldCheck) {
                 presence._checkPresenceAndProcess();
             }
@@ -495,7 +517,7 @@ function updateEverySecond() {
         });
 
         //Forced message display every 3 seconds
-        if(alertDuration%3 == 0){
+        if (alertDuration % 3 == 0) {
             xapi.command("UserInterface Message Prompt Display", {
                 Text: "This room seems unused. It will be self-released.<br>Press check-in if you have booked this room",
                 FeedbackId: 'alert_response',
@@ -503,7 +525,7 @@ function updateEverySecond() {
             }).catch((error) => {
                 console.error(error);
             });
-          }
+        }
     }
 }
 
