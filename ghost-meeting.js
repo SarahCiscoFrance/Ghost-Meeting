@@ -2,8 +2,8 @@
  * Topic: Releasing the room when no one is attending
  * Author: rudferna@cisco.com
  * Team: collaboration FRANCE
- * Version: 1.4
- * Date: 12/05/2021
+ * Version: 1.5
+ * Date: 19/07/2021
  */
 
 
