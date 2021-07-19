@@ -42,7 +42,7 @@ const USE_PEOPLE_COUNT_ONLY = false;
  * If it is set to false, it will require either or.
  * We recommend setting this value to true when people outside of the room can be detected by the camera (e.g. glass walls)
  */
-const USE_PRESENCE_AND_COUNT = false;
+const USE_PRESENCE_AND_COUNT = true;
 
 
 /* 6. When USE_GUI_INTERACTION is set to true, the click/interaction with userinterface extensions (panel, button, slider, toogle etc) is used to detect presence.
@@ -76,6 +76,9 @@ let bookingIsActive = false;
 let listenerShouldCheck = true;
 let bookingId;
 let meetingId;
+
+let isRoomReleasePaused = false;
+let pauseTimer;
 
 class PresenceDetector {
     /* * Presence detector class handling all the logic * to detect presence on Cisco equipment */
@@ -191,14 +194,15 @@ class PresenceDetector {
             });
             xapi.Command.UserInterface.Message.TextLine.Clear({});
             clearInterval(forcedUpdate);
-
+            xapi.Command.UserInterface.Extensions.Panel.Remove({ PanelId: 'room_release_btn'});
             //here we get the updeted meetingId to decline the meeting
             xapi.Command.Bookings.Get({
                 Id: bookingId
             }).then(book => {
+                meetingId = book.Booking.MeetingId;
                 xapi.Command.Bookings.Respond({
                     Type: "Decline",
-                    MeetingId: book.Booking.MeetingId
+                    MeetingId: meetingId
                 });
             });
 
@@ -275,6 +279,23 @@ async function beginDetection() {
     //when meeting starts
     xapi.Event.Bookings.Start.on(async booking_info => {
         console.log("Booking " + booking_info.Id + " detected");
+
+        //Create button to pause the detection
+        xapi.Command.UserInterface.Extensions.Panel.Save({
+            PanelId: "room_release_btn"
+        }, `<Extensions>
+          <Version>1.8</Version>
+          <Panel>
+            <Order>2</Order>
+            <PanelId>room_release_btn</PanelId>
+            <Type>Home</Type>
+            <Icon>Power</Icon>
+            <Color>#FF503C</Color>
+            <Name>Pause Room Release</Name>
+            <ActivityType>Custom</ActivityType>
+          </Panel>
+        </Extensions>`);
+
         await presence.updatePresence(); // initialize data
         bookingId = booking_info.Id;
         xapi.Status.Bookings.Availability.Status.get().then(availability => {
@@ -289,7 +310,7 @@ async function beginDetection() {
                     //each minutes it check if _checkPresenceAndProcess should be called (in order to declare a room empty or full).
                     //This is done because the update depends on listeners and if no events are detected the method will never be called
                     forcedUpdate = setInterval(() => {
-
+                      if(!isRoomReleasePaused){
                         if (presence._isRoomOccupied()) {
                             if ((presence._lastFullTimer != 0)) {
                                 if (Date.now() > (presence._lastFullTimer + MIN_BEFORE_BOOK * 60000)) {
@@ -305,7 +326,7 @@ async function beginDetection() {
                                 }
                             }
                         }
-
+                      }
                     }, (MIN_BEFORE_BOOK * 60000) + 1000);
                 });
             } else {
@@ -336,13 +357,14 @@ async function beginDetection() {
         presence._lastEmptyTimer = 0;
         presence._roomIsFull = false;
         presence._roomIsEmpty = false;
+        xapi.Command.UserInterface.Extensions.Panel.Remove({ PanelId: 'room_release_btn'});
         console.log("Booking " + booking_info.Id + " ended Stop Checking");
     });
 
 
     //Active Call
     xapi.Status.SystemUnit.State.NumberOfActiveCalls.on(numberOfcall => {
-        if (bookingIsActive) {
+        if (bookingIsActive && !isRoomReleasePaused) {
             console.log("Number of active call: " + numberOfcall);
             if (parseInt(numberOfcall) > 0 && USE_ACTIVE_CALLS) {
                 presence._data.inCall = true;
@@ -359,7 +381,7 @@ async function beginDetection() {
 
     //Presence
     xapi.Status.RoomAnalytics.PeoplePresence.on(presenceValue => {
-        if (bookingIsActive) {
+        if (bookingIsActive && !isRoomReleasePaused) {
             console.log("Presence: " + presenceValue);
             presenceValue = presenceValue === 'Yes' ? true : false;
             if (!USE_ULTRASOUND) {
@@ -390,7 +412,7 @@ async function beginDetection() {
 
     //People Count
     xapi.Status.RoomAnalytics.PeopleCount.Current.on(nb_people => {
-        if (bookingIsActive) {
+        if (bookingIsActive && !isRoomReleasePaused) {
             console.log("People count: " + nb_people);
             nb_people = parseInt(nb_people);
             presence._data.peopleCount = nb_people === -1 ? 0 : nb_people;
@@ -425,7 +447,7 @@ async function beginDetection() {
 
     //Sound Level
     xapi.Status.RoomAnalytics.Sound.Level.A.on(level => {
-        if (bookingIsActive) {
+        if (bookingIsActive && !isRoomReleasePaused) {
             console.log("Sound level: " + level);
             level = parseInt(level);
             if ((level > SOUND_LEVEL) && USE_SOUND) {
@@ -442,7 +464,7 @@ async function beginDetection() {
 
     //Presentation Mode (Off/Receiving/Sending)
     xapi.Status.Conference.Presentation.Mode.on(mode => {
-        if (bookingIsActive) {
+        if (bookingIsActive && !isRoomReleasePaused) {
             console.log("Presentation Mode: " + mode);
             mode = mode === 'Off' ? false : true;
             if (!USE_PRESENTATION_MODE) {
@@ -458,7 +480,7 @@ async function beginDetection() {
 
     //GUI Interaction
     xapi.Event.UserInterface.Extensions.on(event => {
-        if (bookingIsActive && USE_GUI_INTERACTION) {
+        if (bookingIsActive && USE_GUI_INTERACTION && !isRoomReleasePaused) {
             console.log("Touch Panel interaction detected");
             xapi.Command.UserInterface.Message.Prompt.Clear({
                 FeedbackId: "alert_response"
@@ -466,6 +488,8 @@ async function beginDetection() {
             xapi.Command.UserInterface.Message.TextLine.Clear({});
             clearTimeout(delete_timeout);
             clearInterval(refreshInterval);
+            presence._data.peoplePresence = true;
+            presence._data.peopleCount = 1;
             //we consider that the room is used
             presence._roomIsFull = true;
             presence._roomIsEmpty = false;
@@ -497,10 +521,66 @@ async function beginDetection() {
                         break;
                 }
                 break;
+            case 'pause_room_release':
+                switch (event.OptionId) {
+                    case '1':
+                        console.log('30min');
+                        pauseMacro(30);
+                        break;
+                    case '2':
+                        console.log('1h');
+                        pauseMacro(60);
+                        break;
+                    case '3':
+                        console.log('1h30');
+                        pauseMacro(90);
+                        break;
+
+                    case '4':
+                        console.log('2h');
+                        pauseMacro(120);
+                        break;
+                    default:
+                        console.error(`Error, we are out of ${response.OptionId}.`);
+                }
+                break;
+            case 'restart_room_release':
+                isRoomReleasePaused = false;
+                clearTimeout(pauseTimer);
+                xapi.Command.UserInterface.Extensions.Panel.Update({
+                    Color: '#FF503C',
+                    Name: 'Pause Room Release',
+                    PanelId: 'room_release_btn'
+                });
+                break;
             default:
                 break;
         }
     });
+
+    xapi.Event.UserInterface.Extensions.Panel.Clicked
+        .on(event => {
+            if (event.PanelId == 'room_release_btn' && !isRoomReleasePaused) {
+                xapi.Command.UserInterface.Message.Prompt.Display({
+                    Duration: 0,
+                    FeedbackId: "pause_room_release",
+                    "Option.1": "30min",
+                    "Option.2": "1h",
+                    "Option.3": "1h30",
+                    "Option.4": "2h",
+                    Text: "Select the pause time",
+                    Title: "Pause Room Release"
+                });
+            } else if (event.PanelId == 'room_release_btn' && isRoomReleasePaused) {
+                xapi.Command.UserInterface.Message.Prompt.Display({
+                    Duration: 0,
+                    FeedbackId: "restart_room_release",
+                    "Option.1": "RESTART",
+                    Text: "Press button below",
+                    Title: "Restart Room Release"
+                });
+            }
+        });
 
 }
 
@@ -527,6 +607,23 @@ function updateEverySecond() {
             });
         }
     }
+}
+
+function pauseMacro(amountTime) {
+    isRoomReleasePaused = true;
+    xapi.Command.UserInterface.Extensions.Panel.Update({
+        Color: '#30D557',
+        Name: 'Start Room Release',
+        PanelId: 'room_release_btn'
+    });
+    pauseTimer = setTimeout(function () {
+        isRoomReleasePaused = false;
+        xapi.Command.UserInterface.Extensions.Panel.Update({
+            Color: '#FF503C',
+            Name: 'Pause Room Release',
+            PanelId: 'room_release_btn'
+        });
+    }, amountTime * 60000);
 }
 
 
