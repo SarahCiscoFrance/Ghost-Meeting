@@ -24,16 +24,12 @@ The following metrics are used:
     ```
 
 
-2. Open a web browser pointing to the IP address of your room device, and sign into the web interface (you will need a user account with 'administrator' role), and go to the Macro Editor section. Then import the script named "ghost-meeting.js" and give it a name (this name will be reused in the step n°5).
+2. Open a web browser pointing to the IP address of your room device, and sign into the web interface (you will need a user account with 'administrator' role), and go to the Macro Editor section. Then import the script named "ghost-meeting.js".
+ 
+3. Also in the macro you have to set one of the 2 variables: const USE_PEOPLE_COUNT_ONLY OR const USE_PRESENCE_AND_COUNT to true to make it work
 
-3. Connect to the device with ssh and set this config:
-    ```sh
-    xconfiguration RoomScheduler Allowroomresponse: True
-    ```
 
-**Note**
+## Requirements
 
-The xAPI to Decline a meeting in this Macro is currently a Public-Preview API. Until it is made Public you will need to obtain a Developer Option Key for your device to have access to the API.
-
-This will only be needed while the API is in Public-Preview.
+The device must have a calendar enabled.
 
